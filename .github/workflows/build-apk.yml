@@ -23,21 +23,18 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install pnpm
-        run: npm install -g pnpm@9
-
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: npm install --legacy-peer-deps
 
       - name: Install Expo CLI
-        run: npm install -g @expo/cli@latest
+        run: npm install -g @expo/cli@latest eas-cli
 
       - name: Prebuild Android
         run: npx expo prebuild --platform android --no-install --clean
         env:
           EXPO_NO_DOTENV: 1
 
-      - name: Generate keystore
+      - name: Generate signing keystore
         run: |
           keytool -genkey -v \
             -keystore pocketpr-upload.jks \
@@ -48,29 +45,22 @@ jobs:
             -storepass pocketpr2024! \
             -keypass pocketpr2024! \
             -dname "CN=Stacy Martin, OU=PocketPR, O=PocketPR, L=Denver, ST=CO, C=US"
-          mv pocketpr-upload.jks android/app/pocketpr-upload.jks
+          cp pocketpr-upload.jks android/app/pocketpr-upload.jks
 
-      - name: Configure signing in build.gradle
-        working-directory: android
+      - name: Configure Gradle signing
+        working-directory: android/app
         run: |
-          cat >> app/build.gradle << 'EOF'
-
-          android {
-            signingConfigs {
-              release {
-                storeFile file("pocketpr-upload.jks")
-                storePassword "pocketpr2024!"
-                keyAlias "pocketpr"
-                keyPassword "pocketpr2024!"
-              }
-            }
-            buildTypes {
-              release {
-                signingConfig signingConfigs.release
-              }
+          cat >> build.gradle << 'GRADLE_EOF'
+          android.signingConfigs {
+            release {
+              storeFile = file("pocketpr-upload.jks")
+              storePassword = "pocketpr2024!"
+              keyAlias = "pocketpr"
+              keyPassword = "pocketpr2024!"
             }
           }
-          EOF
+          android.buildTypes.release.signingConfig = android.signingConfigs.release
+          GRADLE_EOF
 
       - name: Make gradlew executable
         working-directory: android
@@ -80,21 +70,26 @@ jobs:
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
         env:
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=512m"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pocket-pr-release
+          name: pocket-pr-release-apk
           path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 30
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: "Pocket PR Build ${{ github.run_number }}"
-          body: "Pocket PR APK — autonomous AI posting is subscription-gated 🔒"
+          tag_name: pocketpr-build-${{ github.run_number }}
+          name: "Pocket PR — Build ${{ github.run_number }}"
+          body: |
+            **Pocket PR APK**
+            - Free: Compose, Queue, Activity, Accounts
+            - 🔒 Pro (subscription): AI Generate, AI Chat, Strategy
+            
+            Install on Android to test.
           files: android/app/build/outputs/apk/release/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
